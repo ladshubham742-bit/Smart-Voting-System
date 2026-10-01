@@ -1,0 +1,6 @@
+{
+  "name": "SecureVote AI",
+  "description": "Secure, transparent smart voting system prototype with simulated multi-factor biometric verification and AES-GCM encrypted balloting.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
