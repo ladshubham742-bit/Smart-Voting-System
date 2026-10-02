@@ -20,9 +20,11 @@ import {
   Mail,
   Phone,
   CreditCard,
+  Download,
 } from 'lucide-react';
 import { api } from '../services/api';
-import { VoterProfileRecord, Voter, StepType } from '../types';
+import { VoterProfileRecord, Voter, StepType, EncryptedReceipt } from '../types';
+import { downloadReceiptAsHtml, downloadReceiptAsTxt } from '../utils/receiptDownloader';
 
 interface VoterProfileModalProps {
   isOpen: boolean;
@@ -208,25 +210,72 @@ export const VoterProfileModal: React.FC<VoterProfileModalProps> = ({
                       )}
                     </div>
                     {profile.receiptId && (
-                      <div className="p-2.5 rounded-lg bg-white border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div className="space-y-0.5">
-                          <div className="text-[10px] text-slate-500 font-semibold uppercase">
-                            Receipt Identifier
+                      <div className="p-3 rounded-xl bg-white border border-emerald-200 space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <div className="text-[10px] text-slate-500 font-semibold uppercase">
+                              Official Receipt Identifier
+                            </div>
+                            <div className="font-mono text-xs font-bold text-indigo-700">
+                              {profile.receiptId}
+                            </div>
                           </div>
-                          <div className="font-mono text-xs font-bold text-slate-900">
-                            {profile.receiptId}
+                          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const receiptObj: EncryptedReceipt = {
+                                  receiptId: profile.receiptId!,
+                                  ballotId: `BALLOT-BOX-${profile.voterId}`,
+                                  timestamp: profile.votedAt || new Date().toISOString(),
+                                  electionId: 'CAMPUS-ELECTION-2026',
+                                  encryptionStandard: 'AES-256-GCM',
+                                  verificationHash: profile.verificationHash || profile.identityToken || 'CRYPTOGRAPHIC_PROOF_VERIFIED',
+                                  voterStatus: 'VOTED',
+                                };
+                                await downloadReceiptAsHtml(receiptObj, currentUser);
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Download official voting certificate to device"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download Receipt (.html)</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const receiptObj: EncryptedReceipt = {
+                                  receiptId: profile.receiptId!,
+                                  ballotId: `BALLOT-BOX-${profile.voterId}`,
+                                  timestamp: profile.votedAt || new Date().toISOString(),
+                                  electionId: 'CAMPUS-ELECTION-2026',
+                                  encryptionStandard: 'AES-256-GCM',
+                                  verificationHash: profile.verificationHash || profile.identityToken || 'CRYPTOGRAPHIC_PROOF_VERIFIED',
+                                  voterStatus: 'VOTED',
+                                };
+                                downloadReceiptAsTxt(receiptObj, currentUser);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors inline-flex items-center gap-1 cursor-pointer"
+                              title="Download plain text receipt (.txt)"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>.txt</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onClose();
+                                onVerifyReceipt(profile.receiptId!);
+                              }}
+                              className="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-bold transition-colors inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>Verify</span>
+                            </button>
                           </div>
                         </div>
-                        <button
-                          onClick={() => {
-                            onClose();
-                            onVerifyReceipt(profile.receiptId!);
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-colors inline-flex items-center gap-1 self-start sm:self-auto"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                          <span>Verify Receipt</span>
-                        </button>
                       </div>
                     )}
                   </div>

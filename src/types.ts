@@ -138,6 +138,8 @@ export interface EncryptedReceipt {
   encryptionStandard: string;
   verificationHash: string;
   voterStatus: string;
+  cipherStatus?: string;
+  authTagSnippet?: string;
 }
 
 export interface AuditLog {
