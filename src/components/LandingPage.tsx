@@ -20,11 +20,14 @@ import {
   Zap,
   BarChart3,
   Vote,
+  FileText,
+  Ban,
 } from 'lucide-react';
-import { StepType } from '../types';
+import { StepType, DashboardTab } from '../types';
 
 interface LandingPageProps {
   onNavigate: (step: StepType) => void;
+  onNavigateToTab?: (tab: DashboardTab) => void;
   onOpenHowItWorks: () => void;
   onOpenDemoSwitcher: () => void;
   onQuickLogin: (id: string, pass: string) => void;
@@ -32,6 +35,7 @@ interface LandingPageProps {
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onNavigate,
+  onNavigateToTab,
   onOpenHowItWorks,
   onOpenDemoSwitcher,
   onQuickLogin,
@@ -158,6 +162,117 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <div className="text-slate-400 text-[11px]">View live tally charts, audit trail & cipher ledger</div>
               </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 4 Interactive Command & Governance Modules Requested */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 -mt-10 relative z-20">
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-xl p-6 sm:p-8 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-blue-600" />
+                <span>Election Governance & Audit Modules</span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                Explore live turnout statistics, candidate chart totals, cryptographic audit events, and restricted voter records.
+              </p>
+            </div>
+            <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 self-start sm:self-auto">
+              PUBLIC TRANSPARENCY ACTIVE
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+            {/* 1. Executive Overview */}
+            <div
+              onClick={() => onNavigateToTab ? onNavigateToTab('OVERVIEW') : onNavigate('ADMIN_DASHBOARD')}
+              className="p-5 rounded-2xl border-2 border-slate-200 bg-slate-50/60 hover:bg-blue-50/60 hover:border-blue-400 cursor-pointer transition-all hover:shadow-md group flex flex-col justify-between"
+            >
+              <div className="space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
+                  <LayoutDashboard className="w-5 h-5" />
+                </div>
+                <h4 className="font-extrabold text-slate-900 text-sm group-hover:text-blue-700">
+                  Executive Overview
+                </h4>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Real-time turnout percentage, total registered voters vs cast ballots, and active threat defenses.
+                </p>
+              </div>
+              <div className="pt-3 flex items-center text-xs font-bold text-blue-600 gap-1 group-hover:translate-x-1 transition-transform">
+                <span>Open Overview</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </div>
+            </div>
+
+            {/* 2. Candidate Tallies and Chart */}
+            <div
+              onClick={() => onNavigateToTab ? onNavigateToTab('TALLIES') : onNavigate('ADMIN_DASHBOARD')}
+              className="p-5 rounded-2xl border-2 border-slate-200 bg-slate-50/60 hover:bg-emerald-50/60 hover:border-emerald-400 cursor-pointer transition-all hover:shadow-md group flex flex-col justify-between"
+            >
+              <div className="space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
+                  <BarChart3 className="w-5 h-5" />
+                </div>
+                <h4 className="font-extrabold text-slate-900 text-sm group-hover:text-emerald-700">
+                  Candidate Tallies & Chart
+                </h4>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Live contested vote counts, visual percentage bar charts, candidate breakdown, and lead margins.
+                </p>
+              </div>
+              <div className="pt-3 flex items-center text-xs font-bold text-emerald-600 gap-1 group-hover:translate-x-1 transition-transform">
+                <span>View Tallies & Charts</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </div>
+            </div>
+
+            {/* 3. Security Audit Trail */}
+            <div
+              onClick={() => onNavigateToTab ? onNavigateToTab('AUDIT') : onNavigate('ADMIN_DASHBOARD')}
+              className="p-5 rounded-2xl border-2 border-slate-200 bg-slate-50/60 hover:bg-amber-50/60 hover:border-amber-400 cursor-pointer transition-all hover:shadow-md group flex flex-col justify-between"
+            >
+              <div className="space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <h4 className="font-extrabold text-slate-900 text-sm group-hover:text-amber-700">
+                  Security Audit Trail
+                </h4>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Cryptographic ledger logs, biometric matching confirmations, and double-vote block timestamps.
+                </p>
+              </div>
+              <div className="pt-3 flex items-center text-xs font-bold text-amber-700 gap-1 group-hover:translate-x-1 transition-transform">
+                <span>Inspect Audit Trail</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </div>
+            </div>
+
+            {/* 4. Restricted IDs */}
+            <div
+              onClick={() => onNavigateToTab ? onNavigateToTab('RESTRICTED') : onNavigate('ADMIN_DASHBOARD')}
+              className="p-5 rounded-2xl border-2 border-slate-200 bg-slate-50/60 hover:bg-red-50/60 hover:border-red-400 cursor-pointer transition-all hover:shadow-md group flex flex-col justify-between"
+            >
+              <div className="space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-red-100 text-red-700 flex items-center justify-center group-hover:scale-105 transition-transform shadow-xs">
+                  <Ban className="w-5 h-5" />
+                </div>
+                <h4 className="font-extrabold text-slate-900 text-sm group-hover:text-red-700 flex items-center gap-1.5">
+                  <span>Restricted IDs</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-red-100 text-red-700 border border-red-200">Enforced</span>
+                </h4>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  One Person, One Vote enforcement: inspect accounts locked for attempting duplicate voting.
+                </p>
+              </div>
+              <div className="pt-3 flex items-center text-xs font-bold text-red-700 gap-1 group-hover:translate-x-1 transition-transform">
+                <span>View Restricted IDs</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </div>
             </div>
           </div>
         </div>

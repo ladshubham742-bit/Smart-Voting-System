@@ -3,6 +3,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
 import crypto from 'crypto';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,9 +26,52 @@ export interface Voter {
   faceToken: string; // Simulated facial vector token
   hasVoted: boolean;
   votedAt: string | null;
+  receiptId?: string | null;
+  isRestricted?: boolean;
+  restrictedReason?: string | null;
+  restrictedAt?: string | null;
+  lastLoginAt?: string | null;
+  loginCount?: number;
   failedAuthAttempts: number;
   role: 'Voter' | 'Election Officer' | 'Administrator';
   createdAt: string;
+  databaseRecordId?: string;
+}
+
+export interface LoginRecord {
+  id: string;
+  voterId: string;
+  name: string;
+  role: string;
+  timestamp: string;
+  ip: string;
+  status: 'SUCCESS' | 'FAILED';
+  failureReason?: string;
+}
+
+export interface RegistrationRecord {
+  id: string;
+  voterId: string;
+  name: string;
+  email: string;
+  mobile: string;
+  dob: string;
+  idType: string;
+  idNumberMasked: string;
+  identityToken: string;
+  registeredAt: string;
+  ip: string;
+  databaseRecordNumber: number;
+}
+
+export interface VotingRecord {
+  id: string;
+  voterId: string;
+  receiptId: string;
+  ballotId: string;
+  timestamp: string;
+  verificationHash: string;
+  status: 'VOTE_CONFIRMED' | 'RESTRICTED';
 }
 
 export interface Candidate {
@@ -127,24 +171,90 @@ function decryptVoteChoice(ciphertext: string, ivBase64: string, authTagBase64: 
   }
 }
 
-// --- IN-MEMORY DATABASE STATE (Thread-Safe with Mutex Lock for Double-Vote Prevention) ---
+// --- IN-MEMORY & FILE-PERSISTED DATABASE (Thread-Safe with Mutex Lock for Double-Vote Prevention) ---
 class SecureVoteDatabase {
   public voters: Map<string, Voter> = new Map();
   public ballots: EncryptedBallot[] = [];
   public auditLogs: AuditLog[] = [];
   public candidates: Candidate[] = [];
+  public loginLogs: LoginRecord[] = [];
+  public registrationLogs: RegistrationRecord[] = [];
+  public votingRecords: VotingRecord[] = [];
   public failedAttemptsCounter: number = 0;
   public duplicateAttemptsCounter: number = 0;
   private isProcessingVote: boolean = false; // Mutex lock
+  private dbFilePath: string = path.resolve(__dirname, 'data', 'election_database.json');
 
   constructor() {
-    this.seedInitialData();
+    if (!this.loadFromFile()) {
+      this.seedInitialData();
+      this.saveToFile();
+    }
+  }
+
+  public saveToFile() {
+    try {
+      const dataDir = path.dirname(this.dbFilePath);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      const payload = {
+        voters: Array.from(this.voters.entries()),
+        ballots: this.ballots,
+        auditLogs: this.auditLogs,
+        candidates: this.candidates,
+        loginLogs: this.loginLogs,
+        registrationLogs: this.registrationLogs,
+        votingRecords: this.votingRecords,
+        failedAttemptsCounter: this.failedAttemptsCounter,
+        duplicateAttemptsCounter: this.duplicateAttemptsCounter,
+        savedAt: new Date().toISOString(),
+      };
+      fs.writeFileSync(this.dbFilePath, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (err) {
+      console.error('[SecureVoteDatabase] Error saving database file:', err);
+    }
+  }
+
+  public loadFromFile(): boolean {
+    try {
+      if (fs.existsSync(this.dbFilePath)) {
+        const raw = fs.readFileSync(this.dbFilePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.voters)) {
+          this.voters = new Map(parsed.voters);
+          this.ballots = parsed.ballots || [];
+          this.auditLogs = parsed.auditLogs || [];
+          this.candidates = parsed.candidates || [];
+          this.loginLogs = parsed.loginLogs || [];
+          this.registrationLogs = parsed.registrationLogs || [];
+          this.votingRecords = parsed.votingRecords || [];
+          this.failedAttemptsCounter = parsed.failedAttemptsCounter || 0;
+          this.duplicateAttemptsCounter = parsed.duplicateAttemptsCounter || 0;
+          console.log(`[SecureVoteDatabase] Successfully loaded persistent database with ${this.voters.size} voters, ${this.loginLogs.length} logins.`);
+          return true;
+        }
+      }
+    } catch (err) {
+      console.error('[SecureVoteDatabase] Error loading database file:', err);
+    }
+    return false;
+  }
+
+  public recordLogin(event: LoginRecord) {
+    this.loginLogs.unshift(event);
+    if (this.loginLogs.length > 500) {
+      this.loginLogs.pop();
+    }
   }
 
   public seedInitialData() {
     this.voters.clear();
     this.ballots = [];
     this.auditLogs = [];
+    this.loginLogs = [];
+    this.registrationLogs = [];
+    this.votingRecords = [];
     this.failedAttemptsCounter = 0;
     this.duplicateAttemptsCounter = 0;
 
@@ -333,13 +443,101 @@ class SecureVoteDatabase {
       createdAt: '2026-09-25T00:00:00Z',
     };
 
+    voter1.databaseRecordId = 'REG-DB-2026-0001';
+    voter2.databaseRecordId = 'REG-DB-2026-0002';
+    voter2.receiptId = 'REC-2026-INIT-ADITYA';
+    voter3.databaseRecordId = 'REG-DB-2026-0003';
+    admin.databaseRecordId = 'REG-DB-2026-ADMIN';
+    officer.databaseRecordId = 'REG-DB-2026-OFFICER';
+
     this.voters.set(voter1.id, voter1);
     this.voters.set(voter2.id, voter2);
     this.voters.set(voter3.id, voter3);
     this.voters.set(admin.id, admin);
     this.voters.set(officer.id, officer);
 
-    this.logAudit('SYSTEM', 'ELECTION_INITIALIZED', 'Initial demo data seeded with 3 demo voters and 1 pre-cast ballot.', 'SUCCESS');
+    // Initial Registration Records in Database
+    this.registrationLogs = [
+      {
+        id: voter1.databaseRecordId,
+        voterId: voter1.id,
+        name: voter1.name,
+        email: voter1.email,
+        mobile: voter1.mobile,
+        dob: voter1.dob,
+        idType: voter1.idType,
+        idNumberMasked: voter1.idNumberMasked,
+        identityToken: voter1.identityToken,
+        registeredAt: voter1.createdAt,
+        ip: '127.0.0.1 (Campus LAN)',
+        databaseRecordNumber: 1,
+      },
+      {
+        id: voter2.databaseRecordId,
+        voterId: voter2.id,
+        name: voter2.name,
+        email: voter2.email,
+        mobile: voter2.mobile,
+        dob: voter2.dob,
+        idType: voter2.idType,
+        idNumberMasked: voter2.idNumberMasked,
+        identityToken: voter2.identityToken,
+        registeredAt: voter2.createdAt,
+        ip: '127.0.0.1 (Campus LAN)',
+        databaseRecordNumber: 2,
+      },
+      {
+        id: voter3.databaseRecordId,
+        voterId: voter3.id,
+        name: voter3.name,
+        email: voter3.email,
+        mobile: voter3.mobile,
+        dob: voter3.dob,
+        idType: voter3.idType,
+        idNumberMasked: voter3.idNumberMasked,
+        identityToken: voter3.identityToken,
+        registeredAt: voter3.createdAt,
+        ip: '127.0.0.1 (Campus LAN)',
+        databaseRecordNumber: 3,
+      },
+    ];
+
+    // Initial Voting Record in Database
+    this.votingRecords = [
+      {
+        id: 'VREC-INIT-0001',
+        voterId: voter2.id,
+        receiptId: 'REC-2026-INIT-ADITYA',
+        ballotId: 'BLT-INIT-7F2A-91C0',
+        timestamp: '2026-10-01T06:15:30Z',
+        verificationHash: seededBallot.verificationHash,
+        status: 'VOTE_CONFIRMED',
+      },
+    ];
+
+    // Initial Seed Logins in Database
+    this.loginLogs = [
+      {
+        id: 'LOG-IN-INIT-001',
+        voterId: voter2.id,
+        name: voter2.name,
+        role: voter2.role,
+        timestamp: '2026-10-01T06:10:00Z',
+        ip: '127.0.0.1',
+        status: 'SUCCESS',
+      },
+      {
+        id: 'LOG-IN-INIT-002',
+        voterId: admin.id,
+        name: admin.name,
+        role: admin.role,
+        timestamp: '2026-09-30T18:00:00Z',
+        ip: '127.0.0.1',
+        status: 'SUCCESS',
+      },
+    ];
+
+    this.logAudit('SYSTEM', 'ELECTION_INITIALIZED', 'Initial demo data seeded with 3 demo voters, 1 pre-cast ballot, and database records.', 'SUCCESS');
   }
 
   public logAudit(voterId: string, event: string, detail: string, status: 'SUCCESS' | 'WARNING' | 'ALERT' | 'BLOCKED') {
@@ -359,7 +557,7 @@ class SecureVoteDatabase {
   }
 
   // Atomic vote execution to strictly prevent race conditions and double voting
-  public async executeVoteCast(voterId: string, candidateId: string): Promise<{ success: boolean; error?: string; receipt?: any }> {
+  public async executeVoteCast(voterId: string, candidateId: string): Promise<{ success: boolean; error?: string; receipt?: any; isRestricted?: boolean }> {
     // Acquire mutex
     while (this.isProcessingVote) {
       await new Promise((r) => setTimeout(r, 10));
@@ -373,18 +571,24 @@ class SecureVoteDatabase {
         return { success: false, error: 'Voter not found in registry.' };
       }
 
-      // CRITICAL CHECK: Has voter already voted?
+      // CRITICAL CHECK: Has voter already voted? (ONE PERSON ONE VOTE ENFORCEMENT)
       if (voter.hasVoted) {
         this.duplicateAttemptsCounter += 1;
+        voter.isRestricted = true;
+        voter.restrictedAt = new Date().toISOString();
+        voter.restrictedReason = `CRITICAL ELECTION VIOLATION: Attempted second ballot submission after vote already cast at ${voter.votedAt}. Voter ID restricted under One Person, One Vote enforcement.`;
+        this.voters.set(voterId, voter);
         this.logAudit(
           voterId,
-          'DOUBLE_VOTE_BLOCKED',
-          `Double-voting attempt detected and rejected for voter ID: ${voterId}. Original vote cast at: ${voter.votedAt}`,
-          'BLOCKED'
+          'VOTER_ID_RESTRICTED',
+          `SECURITY LOCKOUT: Voter ID ${voterId} RESTRICTED for attempting duplicate vote. Original vote cast at: ${voter.votedAt}`,
+          'ALERT'
         );
+        this.saveToFile();
         return {
           success: false,
-          error: 'Vote already recorded. Duplicate voting is not permitted.',
+          error: 'VOTER ID RESTRICTED: One Person, One Vote policy strictly enforced. You have already cast your ballot. Your voter ID has now been restricted and flagged.',
+          isRestricted: true,
         };
       }
 
@@ -414,21 +618,36 @@ class SecureVoteDatabase {
       };
       this.ballots.push(ballot);
 
-      // 3. Mark voter as voted atomically
+      // 3. Mark voter as voted atomically and record receipt ID in voter profile
       voter.hasVoted = true;
       voter.votedAt = now;
+      voter.receiptId = receiptId;
       this.voters.set(voterId, voter);
 
       // 4. Update candidate tallies
       candidate.votes += 1;
 
-      // 5. Log audit trail
+      // 5. Store voting transaction record in database
+      this.votingRecords.unshift({
+        id: `VREC-${Date.now().toString(36).toUpperCase()}`,
+        voterId: voter.id,
+        receiptId,
+        ballotId,
+        timestamp: now,
+        verificationHash: encrypted.verificationHash,
+        status: 'VOTE_CONFIRMED',
+      });
+
+      // 6. Log audit trail
       this.logAudit(
         voterId,
         'VOTE_CAST_ENCRYPTED',
-        `Ballot successfully encrypted (AES-256-GCM) and recorded. Receipt issued: ${receiptId}`,
+        `Ballot successfully encrypted (AES-256-GCM) and recorded in database. Receipt issued: ${receiptId}`,
         'SUCCESS'
       );
+
+      // 7. Persist updated database state
+      this.saveToFile();
 
       return {
         success: true,
@@ -600,6 +819,7 @@ async function startServer() {
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = hashPassword(password, salt);
     const identityToken = crypto.createHash('sha256').update(cleanId + salt).digest('hex');
+    const databaseRecordId = `REG-DB-2026-${(db.registrationLogs.length + 1).toString().padStart(4, '0')}`;
 
     const newVoter: Voter = {
       id: voterId.trim(),
@@ -617,24 +837,78 @@ async function startServer() {
       faceToken: '', // Will be updated during face registration step
       hasVoted: false,
       votedAt: null,
+      receiptId: null,
       failedAuthAttempts: 0,
       role: 'Voter',
       createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+      loginCount: 1,
+      databaseRecordId,
     };
 
     db.voters.set(newVoter.id, newVoter);
-    db.logAudit(newVoter.id, 'REGISTRATION_SUCCESS', `Voter registered. ID token created: ${identityToken.substring(0, 12)}...`, 'SUCCESS');
+
+    // Save registration log in database
+    db.registrationLogs.unshift({
+      id: databaseRecordId,
+      voterId: newVoter.id,
+      name: newVoter.name,
+      email: newVoter.email,
+      mobile: newVoter.mobile,
+      dob: newVoter.dob,
+      idType: newVoter.idType,
+      idNumberMasked: newVoter.idNumberMasked,
+      identityToken: newVoter.identityToken,
+      registeredAt: newVoter.createdAt,
+      ip: (req.ip || '127.0.0.1').replace('::ffff:', ''),
+      databaseRecordNumber: db.registrationLogs.length + 1,
+    });
+
+    // Record initial session login in database
+    db.recordLogin({
+      id: `LOG-IN-${Date.now().toString(36).toUpperCase()}`,
+      voterId: newVoter.id,
+      name: newVoter.name,
+      role: newVoter.role,
+      timestamp: newVoter.createdAt,
+      ip: (req.ip || '127.0.0.1').replace('::ffff:', ''),
+      status: 'SUCCESS',
+    });
+
+    db.logAudit(
+      newVoter.id,
+      'USER_REGISTERED',
+      `Citizen registered and persisted in database: ${newVoter.name} (${newVoter.id}). Record: ${databaseRecordId}. Token: ${identityToken.substring(0, 10)}...`,
+      'SUCCESS'
+    );
+
+    // Persist to database file
+    db.saveToFile();
 
     const sessionToken = createSession(newVoter.id, newVoter.role);
 
     res.status(201).json({
       success: true,
-      message: 'Identity verification successful ✓',
+      message: 'Identity verification successful & stored in election database ✓',
       voter: {
         id: newVoter.id,
         name: newVoter.name,
-        maskedId: newVoter.idNumberMasked,
+        dob: newVoter.dob,
+        email: newVoter.email,
+        mobile: newVoter.mobile,
+        idType: newVoter.idType,
+        idNumberMasked: newVoter.idNumberMasked,
         identityToken: newVoter.identityToken,
+        hasVoted: newVoter.hasVoted,
+        votedAt: newVoter.votedAt,
+        receiptId: newVoter.receiptId,
+        role: newVoter.role,
+        createdAt: newVoter.createdAt,
+        lastLoginAt: newVoter.lastLoginAt,
+        loginCount: newVoter.loginCount,
+        databaseRecordId: newVoter.databaseRecordId,
+        hasRegisteredFingerprint: false,
+        hasRegisteredFace: false,
       },
       sessionToken,
     });
@@ -652,6 +926,7 @@ async function startServer() {
 
     if (biometricType === 'FINGERPRINT') {
       voter.fingerprintToken = generateBiometricToken('FP', voter.id);
+      db.saveToFile();
       db.logAudit(voter.id, 'FP_REGISTERED', 'Simulated fingerprint token template generated and bound to voter identity', 'SUCCESS');
       return res.json({
         success: true,
@@ -660,6 +935,7 @@ async function startServer() {
       });
     } else if (biometricType === 'FACE') {
       voter.faceToken = generateBiometricToken('FACE', voter.id);
+      db.saveToFile();
       db.logAudit(voter.id, 'FACE_REGISTERED', 'Simulated face biometric vector registered with liveness metadata', 'SUCCESS');
       return res.json({
         success: true,
@@ -682,6 +958,17 @@ async function startServer() {
     const voter = db.voters.get(voterId.trim());
     if (!voter) {
       db.failedAttemptsCounter += 1;
+      db.recordLogin({
+        id: `LOG-FAIL-${Date.now().toString(36).toUpperCase()}`,
+        voterId: voterId.trim(),
+        name: 'Unknown Citizen',
+        role: 'Unregistered',
+        timestamp: new Date().toISOString(),
+        ip: (req.ip || '127.0.0.1').replace('::ffff:', ''),
+        status: 'FAILED',
+        failureReason: 'Invalid Voter ID provided',
+      });
+      db.saveToFile();
       db.logAudit(voterId, 'LOGIN_FAILED', 'Invalid ID provided during login attempt', 'WARNING');
       return res.status(401).json({ error: 'Invalid ID or credentials. Please check your details.' });
     }
@@ -690,27 +977,74 @@ async function startServer() {
     if (computedHash !== voter.passwordHash) {
       voter.failedAuthAttempts += 1;
       db.failedAttemptsCounter += 1;
+      db.recordLogin({
+        id: `LOG-FAIL-${Date.now().toString(36).toUpperCase()}`,
+        voterId: voter.id,
+        name: voter.name,
+        role: voter.role,
+        timestamp: new Date().toISOString(),
+        ip: (req.ip || '127.0.0.1').replace('::ffff:', ''),
+        status: 'FAILED',
+        failureReason: `Incorrect password attempt (#${voter.failedAuthAttempts})`,
+      });
+      db.saveToFile();
       db.logAudit(voterId, 'LOGIN_FAILED', `Incorrect password attempt (#${voter.failedAuthAttempts})`, 'WARNING');
       return res.status(401).json({ error: 'Invalid ID or password. Please verify your credentials.' });
     }
 
-    // Reset failed counter on successful password
+    // Reset failed counter on successful password and log in DB
     voter.failedAuthAttempts = 0;
+    voter.lastLoginAt = new Date().toISOString();
+    voter.loginCount = (voter.loginCount || 0) + 1;
+    db.voters.set(voter.id, voter);
+
+    // Record login in database table
+    db.recordLogin({
+      id: `LOG-IN-${Date.now().toString(36).toUpperCase()}`,
+      voterId: voter.id,
+      name: voter.name,
+      role: voter.role,
+      timestamp: voter.lastLoginAt,
+      ip: (req.ip || '127.0.0.1').replace('::ffff:', ''),
+      status: 'SUCCESS',
+    });
+
+    // Save database state
+    db.saveToFile();
+
     const sessionToken = createSession(voter.id, voter.role);
 
-    db.logAudit(voter.id, 'LOGIN_SUCCESS', `User successfully authenticated (${voter.role})`, 'SUCCESS');
+    db.logAudit(
+      voter.id,
+      'USER_LOGIN',
+      `Citizen authenticated & logged in (Session #${voter.loginCount}). Database entry verified. Role: ${voter.role}`,
+      'SUCCESS'
+    );
 
     res.json({
       success: true,
-      message: 'Credentials authenticated successfully',
+      message: 'Credentials authenticated successfully & session logged in database',
       sessionToken,
       voter: {
         id: voter.id,
         name: voter.name,
+        dob: voter.dob,
+        email: voter.email,
+        mobile: voter.mobile,
+        idType: voter.idType,
         role: voter.role,
         hasVoted: voter.hasVoted,
         votedAt: voter.votedAt,
+        receiptId: voter.receiptId || null,
+        isRestricted: voter.isRestricted || false,
+        restrictedReason: voter.restrictedReason || null,
+        restrictedAt: voter.restrictedAt || null,
         idNumberMasked: voter.idNumberMasked,
+        identityToken: voter.identityToken,
+        createdAt: voter.createdAt,
+        lastLoginAt: voter.lastLoginAt,
+        loginCount: voter.loginCount,
+        databaseRecordId: voter.databaseRecordId || `REG-DB-2026-${voter.id.replace(/\D/g, '').padStart(4, '0') || '0001'}`,
         hasRegisteredFingerprint: !!voter.fingerprintToken,
         hasRegisteredFace: !!voter.faceToken,
       },
@@ -807,11 +1141,69 @@ async function startServer() {
     res.json({
       voterId: voter.id,
       name: voter.name,
+      dob: voter.dob,
+      email: voter.email,
+      mobile: voter.mobile,
+      idType: voter.idType,
       hasVoted: voter.hasVoted,
       votedAt: voter.votedAt,
+      receiptId: voter.receiptId || null,
+      isRestricted: voter.isRestricted || false,
+      restrictedReason: voter.restrictedReason || null,
+      restrictedAt: voter.restrictedAt || null,
       role: voter.role,
       idNumberMasked: voter.idNumberMasked,
+      identityToken: voter.identityToken,
+      databaseRecordId: voter.databaseRecordId || `REG-DB-2026-${voter.id.replace(/\D/g, '').padStart(4, '0') || '0001'}`,
+      createdAt: voter.createdAt,
+      lastLoginAt: voter.lastLoginAt || null,
+      loginCount: voter.loginCount || 1,
       bioVerified: sess.bioVerified,
+      hasRegisteredFingerprint: !!voter.fingerprintToken,
+      hasRegisteredFace: !!voter.faceToken,
+    });
+  });
+
+  // 6b. Comprehensive Voter Profile & Stored Database Record
+  app.get('/api/voter/profile-record', authenticate, (req: Request, res: Response) => {
+    const sess = (req as any).session;
+    const voter = db.voters.get(sess.voterId);
+
+    if (!voter) {
+      return res.status(404).json({ error: 'Voter record not found in database.' });
+    }
+
+    let verificationHash: string | null = null;
+    if (voter.receiptId) {
+      const ballot = db.ballots.find((b) => b.receiptId === voter.receiptId);
+      if (ballot) {
+        verificationHash = ballot.verificationHash;
+      }
+    }
+
+    res.json({
+      voterId: voter.id,
+      name: voter.name,
+      dob: voter.dob,
+      email: voter.email,
+      mobile: voter.mobile,
+      idType: voter.idType,
+      idNumberMasked: voter.idNumberMasked,
+      identityToken: voter.identityToken,
+      databaseRecordId: voter.databaseRecordId || `REG-DB-2026-${voter.id.replace(/\D/g, '').padStart(4, '0') || '0001'}`,
+      createdAt: voter.createdAt,
+      lastLoginAt: voter.lastLoginAt || null,
+      loginCount: voter.loginCount || 1,
+      hasRegisteredFingerprint: !!voter.fingerprintToken,
+      hasRegisteredFace: !!voter.faceToken,
+      hasVoted: voter.hasVoted,
+      votedAt: voter.votedAt,
+      receiptId: voter.receiptId || null,
+      verificationHash,
+      isRestricted: voter.isRestricted || false,
+      restrictedReason: voter.restrictedReason || null,
+      restrictedAt: voter.restrictedAt || null,
+      role: voter.role,
     });
   });
 
@@ -824,12 +1216,27 @@ async function startServer() {
       return res.status(404).json({ error: 'Voter not found.' });
     }
 
-    // IF voter already voted: REJECT and do NOT show candidate options
+    // IF voter already voted: REJECT, RESTRICT VOTER ID, and do NOT show candidate options
     if (voter.hasVoted && voter.role === 'Voter') {
-      db.logAudit(voter.id, 'BALLOT_ACCESS_DENIED', 'Attempted to access ballot after voting.', 'BLOCKED');
+      db.duplicateAttemptsCounter += 1;
+      if (!voter.isRestricted) {
+        voter.isRestricted = true;
+        voter.restrictedAt = new Date().toISOString();
+        voter.restrictedReason = `ONE PERSON, ONE VOTE ENFORCEMENT: Attempted secondary ballot access after already recording a vote on ${voter.votedAt}.`;
+        db.voters.set(voter.id, voter);
+        db.logAudit(
+          voter.id,
+          'VOTER_ID_RESTRICTED',
+          `SECURITY ENFORCEMENT: Voter ID ${voter.id} RESTRICTED for attempting to access ballot a second time.`,
+          'ALERT'
+        );
+      }
       return res.status(403).json({
-        error: 'You have already voted. Ballot access denied.',
+        error: 'VOTER ID RESTRICTED: One Person, One Vote policy strictly enforced. You have already cast your ballot. Your Voter ID is now restricted.',
         hasVoted: true,
+        isRestricted: true,
+        restrictedReason: voter.restrictedReason,
+        restrictedAt: voter.restrictedAt,
         votedAt: voter.votedAt,
       });
     }
@@ -901,13 +1308,8 @@ async function startServer() {
     });
   });
 
-  // 10. Admin / Officer Dashboard Statistics & Metrics
-  app.get('/api/admin/stats', authenticate, (req: Request, res: Response) => {
-    const sess = (req as any).session;
-    if (sess.role !== 'Administrator' && sess.role !== 'Election Officer') {
-      return res.status(403).json({ error: 'Access restricted to Election Authorities.' });
-    }
-
+  // 10. Admin / Officer Dashboard Statistics & Metrics (Open for Public Transparency & Verification)
+  app.get('/api/admin/stats', (req: Request, res: Response) => {
     const allVoters = Array.from(db.voters.values()).filter((v) => v.role === 'Voter');
     const totalRegistered = allVoters.length;
     const totalVotesCast = allVoters.filter((v) => v.hasVoted).length;
@@ -924,6 +1326,16 @@ async function startServer() {
       percentage: totalVotesCast > 0 ? ((c.votes / totalVotesCast) * 100).toFixed(1) : '0',
     }));
 
+    const restrictedVoters = allVoters
+      .filter((v) => v.isRestricted)
+      .map((v) => ({
+        id: v.id,
+        name: v.name,
+        email: v.email,
+        restrictedAt: v.restrictedAt || 'N/A',
+        reason: v.restrictedReason || 'One Person One Vote Violation (Duplicate voting attempt)',
+      }));
+
     res.json({
       totalRegistered,
       totalVotesCast,
@@ -932,32 +1344,44 @@ async function startServer() {
       candidateTallies,
       failedAttemptsCounter: db.failedAttemptsCounter,
       duplicateAttemptsCounter: db.duplicateAttemptsCounter,
+      restrictedVotersCount: restrictedVoters.length,
+      restrictedVoters,
       totalEncryptedBallots: db.ballots.length,
       electionStatus: 'ACTIVE',
       encryptionStandard: 'AES-256-GCM / 256-Bit Master Key',
     });
   });
 
-  // 11. Admin Audit Logs
-  app.get('/api/admin/audit-logs', authenticate, (req: Request, res: Response) => {
+  // Admin Unrestrict Voter Endpoint (Requires Administrator)
+  app.post('/api/admin/unrestrict-voter', authenticate, (req: Request, res: Response) => {
     const sess = (req as any).session;
-    if (sess.role !== 'Administrator' && sess.role !== 'Election Officer') {
-      return res.status(403).json({ error: 'Access restricted.' });
+    if (sess.role !== 'Administrator') {
+      return res.status(403).json({ error: 'Access restricted to Administrator.' });
     }
+    const { voterId } = req.body;
+    const voter = db.voters.get(voterId);
+    if (!voter) {
+      return res.status(404).json({ error: 'Voter not found in registry.' });
+    }
+    voter.isRestricted = false;
+    voter.restrictedReason = null;
+    voter.restrictedAt = null;
+    db.voters.set(voter.id, voter);
+    db.saveToFile();
+    db.logAudit(voter.id, 'VOTER_UNRESTRICTED', `Administrator lifted restriction for voter ID ${voter.id}`, 'SUCCESS');
+    res.json({ success: true, message: `Voter ${voter.id} restriction successfully lifted.` });
+  });
 
+  // 11. Security Audit Logs (Open for Public Transparency & Verification)
+  app.get('/api/admin/audit-logs', (req: Request, res: Response) => {
     res.json({
       logs: db.auditLogs.slice(0, 100),
       total: db.auditLogs.length,
     });
   });
 
-  // 12. Admin Encrypted Ballots Ledger Inspection
-  app.get('/api/admin/ballots-ledger', authenticate, (req: Request, res: Response) => {
-    const sess = (req as any).session;
-    if (sess.role !== 'Administrator') {
-      return res.status(403).json({ error: 'Access restricted to Administrator.' });
-    }
-
+  // 12. Encrypted Ballots Ledger Inspection (Open Anonymized Cryptographic Seals)
+  app.get('/api/admin/ballots-ledger', (req: Request, res: Response) => {
     // Demonstrates stored encrypted ciphertext without voter identification
     const ledger = db.ballots.map((b) => ({
       ballotId: b.ballotId,
@@ -975,7 +1399,74 @@ async function startServer() {
     });
   });
 
-  // 13. Admin Reset Demo Election
+  // 13. Registered Voters & Activity Directory (Open Database Transparency)
+  app.get('/api/admin/voters', (req: Request, res: Response) => {
+    const votersList = Array.from(db.voters.values())
+      .filter((v) => v.role === 'Voter')
+      .map((v) => ({
+        id: v.id,
+        name: v.name,
+        email: v.email,
+        mobile: v.mobile ? `${v.mobile.slice(0, 4)}***${v.mobile.slice(-3)}` : 'N/A',
+        idType: v.idType,
+        idNumberMasked: v.idNumberMasked,
+        identityTokenSnippet: v.identityToken ? `${v.identityToken.slice(0, 10)}...` : 'N/A',
+        hasVoted: v.hasVoted,
+        votedAt: v.votedAt,
+        receiptId: v.receiptId || null,
+        isRestricted: v.isRestricted || false,
+        restrictedReason: v.restrictedReason || null,
+        restrictedAt: v.restrictedAt || null,
+        createdAt: v.createdAt,
+        lastLoginAt: v.lastLoginAt || null,
+        loginCount: v.loginCount || (v.lastLoginAt ? 1 : 0),
+        databaseRecordId: v.databaseRecordId || `REG-DB-2026-${v.id.replace(/\D/g, '').padStart(4, '0') || '0001'}`,
+        hasRegisteredFingerprint: !!v.fingerprintToken,
+        hasRegisteredFace: !!v.faceToken,
+      }));
+
+    res.json({
+      voters: votersList,
+      total: votersList.length,
+    });
+  });
+
+  // 14. Dedicated Database Endpoints (Transparency for Registration & Logins Stored in Database)
+  app.get('/api/database/summary', (req: Request, res: Response) => {
+    const allVoters = Array.from(db.voters.values()).filter((v) => v.role === 'Voter');
+    res.json({
+      totalRegistered: allVoters.length,
+      totalLogins: db.loginLogs.length,
+      totalVotesCast: allVoters.filter((v) => v.hasVoted).length,
+      totalRestricted: allVoters.filter((v) => v.isRestricted).length,
+      databaseType: 'Thread-Safe JSON File-Persisted Database',
+      storageFile: 'data/election_database.json',
+      lastUpdated: new Date().toISOString(),
+    });
+  });
+
+  app.get('/api/database/logins', (req: Request, res: Response) => {
+    res.json({
+      logins: db.loginLogs.slice(0, 100),
+      total: db.loginLogs.length,
+    });
+  });
+
+  app.get('/api/database/registrations', (req: Request, res: Response) => {
+    res.json({
+      registrations: db.registrationLogs.slice(0, 100),
+      total: db.registrationLogs.length,
+    });
+  });
+
+  app.get('/api/database/voting-records', (req: Request, res: Response) => {
+    res.json({
+      votingRecords: db.votingRecords.slice(0, 100),
+      total: db.votingRecords.length,
+    });
+  });
+
+  // 15. Admin Reset Demo Election
   app.post('/api/admin/reset-election', authenticate, (req: Request, res: Response) => {
     const sess = (req as any).session;
     if (sess.role !== 'Administrator') {
@@ -983,11 +1474,12 @@ async function startServer() {
     }
 
     db.seedInitialData();
-    db.logAudit(sess.voterId, 'ELECTION_RESET', 'Demo election state was reset by Administrator.', 'WARNING');
+    db.saveToFile();
+    db.logAudit(sess.voterId, 'ELECTION_RESET', 'Demo election state was reset by Administrator and database re-seeded.', 'WARNING');
 
     res.json({
       success: true,
-      message: 'Demo election has been reset successfully. Initial voter accounts and candidates re-seeded.',
+      message: 'Demo election has been reset successfully. Initial voter accounts, registrations, and candidates re-seeded in database.',
     });
   });
 

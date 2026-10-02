@@ -14,6 +14,9 @@ import {
   Hand,
   Eye,
   Camera,
+  Video,
+  VideoOff,
+  Lock,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { StepType, Voter } from '../types';
@@ -33,7 +36,6 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
   const [activeStage, setActiveStage] = useState<'FP' | 'FACE'>('FP');
 
   // Fingerprint State
-  // fpStep: 'IDLE' | 'AWAITING_THUMB' | 'SCANNING' | 'COMPLETED'
   const [fpState, setFpState] = useState<'IDLE' | 'AWAITING_THUMB' | 'SCANNING' | 'COMPLETED'>('IDLE');
   const [fpProgress, setFpProgress] = useState<number>(0);
   const [fpStatusText, setFpStatusText] = useState('Fingerprint Sensor Ready');
@@ -49,35 +51,110 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
   const [faceStatusText, setFaceStatusText] = useState('Camera Ready • Please look directly at the lens');
   const [faceError, setFaceError] = useState<string | null>(null);
   const [simulateFaceFailure, setSimulateFaceFailure] = useState(false);
+
+  // Camera Live Stream & Snapshot
   const [hasWebcam, setHasWebcam] = useState(false);
+  const [webcamRequested, setWebcamRequested] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const [shutterFlash, setShutterFlash] = useState(false);
+  const [capturedSnapshot, setCapturedSnapshot] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  // Attempt camera stream when entering Face stage
+  // Function to initialize and request camera access
+  const startCamera = async () => {
+    setCameraError(null);
+    setWebcamRequested(true);
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setHasWebcam(false);
+      setCameraError('Camera access not supported by this browser environment. Using high-fidelity synthetic camera sensor.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'user',
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+        },
+      });
+
+      streamRef.current = stream;
+      setHasWebcam(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+    } catch (err: any) {
+      setHasWebcam(false);
+      setCameraError(
+        'Camera permission was denied or device is busy. You can still test using the synthetic live sensor.'
+      );
+    }
+  };
+
+  // Attempt camera when entering FACE stage
   useEffect(() => {
-    let activeStream: MediaStream | null = null;
-    if (activeStage === 'FACE' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } })
-        .then((stream) => {
-          activeStream = stream;
-          setHasWebcam(true);
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        })
-        .catch(() => {
-          setHasWebcam(false);
-        });
+    if (activeStage === 'FACE' && !webcamRequested) {
+      startCamera();
     }
 
     return () => {
-      if (activeStream) {
-        activeStream.getTracks().forEach((track) => track.stop());
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
       }
     };
   }, [activeStage]);
+
+  // Keep video source attached when tab or component updates
+  useEffect(() => {
+    if (hasWebcam && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [hasWebcam, activeStage]);
+
+  // If user is already restricted, block immediately
+  if (currentUser?.isRestricted) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-8">
+        <div className="bg-white rounded-3xl border-2 border-red-300 shadow-xl p-6 sm:p-8 space-y-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto shadow-inner">
+            <Lock className="w-9 h-9" />
+          </div>
+          <div className="space-y-1">
+            <div className="inline-block px-3 py-1 rounded-full bg-red-100 text-red-800 text-xs font-bold uppercase tracking-wider">
+              Voter Credential Restricted
+            </div>
+            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+              One Person, One Vote Enforcement
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 max-w-md mx-auto">
+              Your Voter ID has been restricted because you have already cast your ballot in this election. Further biometric authentication and voting access are suspended.
+            </p>
+          </div>
+
+          <div className="p-4 bg-red-50 rounded-2xl border border-red-200 text-left text-xs font-mono space-y-1.5 text-red-900">
+            <div><strong>Voter ID:</strong> {currentUser.id}</div>
+            <div><strong>Voted Timestamp:</strong> {currentUser.votedAt ? new Date(currentUser.votedAt).toLocaleString() : 'Recorded'}</div>
+            <div><strong>Restriction Status:</strong> LOCKED / SUSPENDED</div>
+            <div><strong>Reason:</strong> {currentUser.restrictedReason || 'Attempted duplicate voting activity'}</div>
+          </div>
+
+          <button
+            onClick={() => onNavigate('RESULTS')}
+            className="w-full py-3 px-6 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 text-white transition-all"
+          >
+            View Live Public Election Standings
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // 1. Initiate Fingerprint - Prompts user to place thumb
   const handleInitiateFpVerify = () => {
@@ -123,31 +200,45 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
     }
   };
 
-  // 3. Handle Face Recognition + Liveness Check
+  // 3. Handle Live Camera Face Recognition + Liveness Check
   const handleVerifyFace = async () => {
     setFaceError(null);
     setFaceScanning(true);
     setShutterFlash(true);
+
+    // Capture snapshot frame from live camera video into canvas
+    if (hasWebcam && videoRef.current && canvasRef.current) {
+      try {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        canvas.width = video.videoWidth || 480;
+        canvas.height = video.videoHeight || 360;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          setCapturedSnapshot(canvas.toDataURL('image/jpeg', 0.85));
+        }
+      } catch (e) {
+        // fallback to live video
+      }
+    }
+
     setTimeout(() => setShutterFlash(false), 200);
 
     setFaceStep(1);
-    // 1. Detect face
-    setFaceStatusText('1. Detecting face: Looking straight at camera...');
-    await new Promise((r) => setTimeout(r, 700));
+    setFaceStatusText('1. Live frame captured: Analyzing facial geometry & alignment...');
+    await new Promise((r) => setTimeout(r, 650));
 
-    // 2. Match registered face
     setFaceStep(2);
-    setFaceStatusText('2. Matching registered facial biometric template...');
+    setFaceStatusText('2. Scanning 512 facial landmarks against registered biometric token...');
     await new Promise((r) => setTimeout(r, 700));
 
-    // 3. Perform liveness check
     setFaceStep(3);
-    setFaceStatusText('3. Performing active liveness & anti-spoof micro-expression check...');
-    await new Promise((r) => setTimeout(r, 800));
+    setFaceStatusText('3. Performing active anti-spoof liveness check (eye gaze & reflectance)...');
+    await new Promise((r) => setTimeout(r, 750));
 
-    // 4. Verify identity
     setFaceStep(4);
-    setFaceStatusText('4. Confirming voter identity token with central registry...');
+    setFaceStatusText('4. Confirming voter identity with central election registry...');
     await new Promise((r) => setTimeout(r, 600));
 
     try {
@@ -165,6 +256,9 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
 
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
+      {/* Hidden canvas for taking instant snapshots */}
+      <canvas ref={canvasRef} className="hidden" />
+
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
         {/* Header */}
         <div className="text-center space-y-1">
@@ -175,7 +269,7 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
             Voter Biometric Verification
           </h2>
           <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
-            Confirm your physical identity before ballot issuance. Follow the explicit instructions for thumb placement and camera alignment.
+            Enforcing the <strong>One Person, One Vote</strong> security protocol. Verify your thumbprint and camera live facial identity before ballot issuance.
           </p>
         </div>
 
@@ -223,7 +317,7 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
             }`}
           >
             <ScanFace className="w-4 h-4" />
-            <span>2. Face & Liveness</span>
+            <span>2. Live Camera Face</span>
             {faceVerified && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto" />}
           </button>
         </div>
@@ -275,7 +369,7 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
                     <span>Fingerprint verified successfully ✓</span>
                   </div>
                   <p className="text-[11px] text-emerald-700">
-                    Proceeding to facial recognition and active liveness check.
+                    Proceeding to live camera facial recognition.
                   </p>
                 </div>
               )}
@@ -386,7 +480,7 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
                   onClick={() => setActiveStage('FACE')}
                   className="w-full py-3.5 px-6 rounded-xl font-bold text-sm bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:translate-y-0"
                 >
-                  Proceed to Face & Liveness Check
+                  Proceed to Live Camera Face Verification
                   <ArrowRight className="w-4 h-4" />
                 </button>
               ) : fpState === 'IDLE' ? (
@@ -422,36 +516,56 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
           </div>
         )}
 
-        {/* STAGE 2: FACE RECOGNITION + LIVENESS CHECK */}
+        {/* STAGE 2: LIVE CAMERA FACE RECOGNITION + LIVENESS CHECK */}
         {activeStage === 'FACE' && (
           <div className="space-y-5 text-center pt-2">
             {/* Explicit Instruction Callout */}
-            <div className="p-3.5 rounded-2xl bg-blue-50/70 border border-blue-200 text-left text-xs space-y-1">
+            <div className="p-3.5 rounded-2xl bg-blue-50/70 border border-blue-200 text-left text-xs space-y-1.5">
               <div className="flex items-center gap-2 text-blue-900 font-bold text-sm">
                 <Eye className="w-4 h-4 text-blue-600" />
-                <span>INSTRUCTION: Look directly at the camera</span>
+                <span>INSTRUCTION: Look directly into your camera</span>
               </div>
               <p className="text-blue-800 text-[11px] leading-relaxed">
-                Center your face in the oval frame. Keep your eyes open for the active anti-spoof liveness check. Then press <strong>"Look at Camera & Verify Identity"</strong>.
+                Allow camera access below so the live feed can verify your face in real time. Center your face within the guide reticle and press <strong>"Capture & Verify Live Face"</strong>.
               </p>
-              <div className="flex items-center gap-1.5 text-[10px] text-blue-600 font-medium pt-1">
-                <span className={`w-2 h-2 rounded-full ${hasWebcam ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                <span>
-                  {hasWebcam
-                    ? 'Live camera interface active'
-                    : 'Synthetic face sensor active (camera permission optional)'}
-                </span>
+
+              {/* Camera Status & Manual Enable Button */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-blue-200/60">
+                <div className="flex items-center gap-1.5 text-[10px] font-medium">
+                  <span className={`w-2 h-2 rounded-full ${hasWebcam ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                  <span className={hasWebcam ? 'text-emerald-700 font-bold' : 'text-amber-800'}>
+                    {hasWebcam ? 'Live Camera Feed Active' : 'Camera permission needed for live video'}
+                  </span>
+                </div>
+
+                {!hasWebcam && (
+                  <button
+                    type="button"
+                    onClick={startCamera}
+                    className="py-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold flex items-center gap-1 transition-colors"
+                  >
+                    <Video className="w-3 h-3" />
+                    Allow / Enable Camera
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Camera Viewfinder */}
-            <div className="relative w-52 h-52 mx-auto rounded-3xl bg-slate-950 border-4 border-slate-800 flex flex-col items-center justify-center shadow-2xl overflow-hidden">
-              {/* Shutter flash */}
+            {/* Camera Viewfinder Box with Live Stream */}
+            <div className="relative w-64 h-64 mx-auto rounded-3xl bg-slate-950 border-4 border-slate-800 flex flex-col items-center justify-center shadow-2xl overflow-hidden">
+              {/* Shutter flash effect */}
               {shutterFlash && (
-                <div className="absolute inset-0 bg-white z-30 animate-out fade-out duration-200 pointer-events-none" />
+                <div className="absolute inset-0 bg-white z-40 animate-out fade-out duration-200 pointer-events-none" />
               )}
 
-              {hasWebcam ? (
+              {/* 1. Captured Snapshot View (if taken) OR 2. Live Video OR 3. Sensor fallback */}
+              {capturedSnapshot ? (
+                <img
+                  src={capturedSnapshot}
+                  alt="Live Face Capture"
+                  className="absolute inset-0 w-full h-full object-cover -scale-x-100"
+                />
+              ) : hasWebcam ? (
                 <video
                   ref={videoRef}
                   autoPlay
@@ -460,31 +574,55 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
                   className="absolute inset-0 w-full h-full object-cover -scale-x-100"
                 />
               ) : (
-                <ScanFace
-                  className={`w-28 h-28 transition-all duration-300 ${
-                    faceVerified
-                      ? 'text-emerald-400 drop-shadow-[0_0_20px_rgba(52,211,153,0.7)]'
-                      : faceScanning
-                      ? 'text-cyan-400 drop-shadow-[0_0_20px_rgba(56,189,248,0.7)] animate-pulse'
-                      : 'text-slate-600'
-                  }`}
-                />
+                <div className="relative z-0 flex flex-col items-center justify-center">
+                  <ScanFace
+                    className={`w-28 h-28 transition-all duration-300 ${
+                      faceVerified
+                        ? 'text-emerald-400 drop-shadow-[0_0_20px_rgba(52,211,153,0.7)]'
+                        : faceScanning
+                        ? 'text-cyan-400 drop-shadow-[0_0_20px_rgba(56,189,248,0.7)] animate-pulse'
+                        : 'text-slate-600'
+                    }`}
+                  />
+                  <span className="text-[10px] font-mono text-slate-400 mt-2">
+                    Synthetic Optical Sensor
+                  </span>
+                </div>
               )}
 
-              {/* Viewfinder guide oval */}
+              {/* Facial alignment bounding reticle */}
+              <div className="absolute inset-3 pointer-events-none border border-white/20 rounded-2xl flex flex-col justify-between p-2 z-10">
+                <div className="flex justify-between">
+                  <div className="w-4 h-4 border-t-2 border-l-2 border-cyan-400" />
+                  <div className="w-4 h-4 border-t-2 border-r-2 border-cyan-400" />
+                </div>
+                <div className="flex justify-between">
+                  <div className="w-4 h-4 border-b-2 border-l-2 border-cyan-400" />
+                  <div className="w-4 h-4 border-b-2 border-r-2 border-cyan-400" />
+                </div>
+              </div>
+
+              {/* Viewfinder oval guide */}
               <div
-                className={`absolute inset-5 rounded-full border-2 border-dashed pointer-events-none z-10 transition-colors ${
+                className={`absolute inset-6 rounded-full border-2 border-dashed pointer-events-none z-10 transition-colors ${
                   faceVerified
                     ? 'border-emerald-400 bg-emerald-500/10'
                     : faceScanning
                     ? 'border-cyan-400 bg-cyan-500/10 animate-pulse'
-                    : 'border-slate-500/70'
+                    : 'border-slate-400/60'
                 }`}
               />
 
+              {/* Live Laser Sweep */}
               {faceScanning && (
-                <div className="absolute left-0 right-0 h-1 bg-cyan-400 shadow-[0_0_12px_#22d3ee] animate-bounce pointer-events-none z-20" />
+                <div className="absolute left-0 right-0 h-1 bg-cyan-400 shadow-[0_0_15px_#22d3ee] animate-bounce pointer-events-none z-30" />
               )}
+
+              {/* Camera Badge */}
+              <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/70 text-white text-[9px] font-mono flex items-center gap-1 backdrop-blur-xs z-30">
+                <span className={`w-1.5 h-1.5 rounded-full ${hasWebcam ? 'bg-emerald-400 animate-ping' : 'bg-amber-400'}`} />
+                <span>{hasWebcam ? 'CAMERA LIVE' : 'SYNTHETIC SENSOR'}</span>
+              </div>
             </div>
 
             {/* 4 Steps Checklist Progress */}
@@ -532,7 +670,7 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
               <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 space-y-1.5 animate-in fade-in">
                 <div className="flex items-center justify-center gap-2 font-bold text-sm">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  <span>Face verified ✓</span>
+                  <span>Face verified from live camera ✓</span>
                 </div>
                 <div className="text-xs text-emerald-700 font-medium">
                   Liveness check passed ✓
@@ -591,12 +729,12 @@ export const BiometricVerification: React.FC<BiometricVerificationProps> = ({
                   {faceScanning ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      Scanning Face & Checking Liveness...
+                      Scanning Face from Camera & Testing Liveness...
                     </>
                   ) : (
                     <>
                       <Camera className="w-4 h-4" />
-                      Look at Camera & Verify Identity
+                      Look at Camera & Verify Live Face
                     </>
                   )}
                 </button>

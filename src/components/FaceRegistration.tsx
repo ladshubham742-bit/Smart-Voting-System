@@ -168,13 +168,37 @@ export const FaceRegistration: React.FC<FaceRegistrationProps> = ({
           <p className="text-blue-800 text-[11px] leading-relaxed">
             Align your eyes and nose inside the guide oval. When centered, press <strong>"Register Face"</strong> below to capture your facial landmark template.
           </p>
-          <div className="flex items-center gap-1.5 text-[10px] text-blue-600 font-medium pt-1">
-            <span className={`w-2 h-2 rounded-full ${hasWebcam ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            <span>
-              {hasWebcam
-                ? 'Live webcam interface active'
-                : 'Synthetic sensor camera mockup active (webcam permission optional)'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-blue-200/60">
+            <div className="flex items-center gap-1.5 text-[10px] text-blue-600 font-medium">
+              <span className={`w-2 h-2 rounded-full ${hasWebcam ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+              <span className={hasWebcam ? 'text-emerald-700 font-bold' : 'text-blue-800'}>
+                {hasWebcam
+                  ? 'Live camera interface active'
+                  : 'Synthetic sensor camera active (camera permission optional)'}
+              </span>
+            </div>
+
+            {!hasWebcam && (
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.mediaDevices
+                    ?.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } } })
+                    .then((stream) => {
+                      setHasWebcam(true);
+                      if (videoRef.current) {
+                        videoRef.current.srcObject = stream;
+                        videoRef.current.play().catch(() => {});
+                      }
+                    })
+                    .catch(() => {});
+                }}
+                className="py-1 px-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold flex items-center gap-1 transition-colors"
+              >
+                <Video className="w-3 h-3" />
+                Allow / Enable Camera
+              </button>
+            )}
           </div>
         </div>
 

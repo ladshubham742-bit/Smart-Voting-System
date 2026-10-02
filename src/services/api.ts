@@ -1,4 +1,18 @@
-import { AdminStats, AuditLog, Candidate, EncryptedReceipt, LedgerItem, PublicElectionResults, Voter } from '../types';
+import {
+  AdminStats,
+  AuditLog,
+  Candidate,
+  EncryptedReceipt,
+  LedgerItem,
+  PublicElectionResults,
+  Voter,
+  RegisteredVoterRecord,
+  LoginRecord,
+  RegistrationRecord,
+  VotingRecord,
+  DatabaseSummary,
+  VoterProfileRecord,
+} from '../types';
 
 const TOKEN_KEY = 'securevote_token';
 
@@ -119,10 +133,36 @@ export const api = {
       name: string;
       hasVoted: boolean;
       votedAt: string | null;
+      receiptId?: string | null;
+      isRestricted?: boolean;
+      restrictedReason?: string | null;
+      restrictedAt?: string | null;
       role: string;
       idNumberMasked: string;
+      databaseRecordId?: string;
       bioVerified: boolean;
     }>('/api/voter/status');
+  },
+
+  async getVoterProfileRecord() {
+    return this.request<VoterProfileRecord>('/api/voter/profile-record');
+  },
+
+  // Central Database Transparency Endpoints
+  async getDatabaseSummary() {
+    return this.request<DatabaseSummary>('/api/database/summary');
+  },
+
+  async getDatabaseLogins() {
+    return this.request<{ logins: LoginRecord[]; total: number }>('/api/database/logins');
+  },
+
+  async getDatabaseRegistrations() {
+    return this.request<{ registrations: RegistrationRecord[]; total: number }>('/api/database/registrations');
+  },
+
+  async getDatabaseVotingRecords() {
+    return this.request<{ votingRecords: VotingRecord[]; total: number }>('/api/database/voting-records');
   },
 
   async getCandidates() {
@@ -170,9 +210,20 @@ export const api = {
     return this.request<{ ledger: LedgerItem[]; total: number }>('/api/admin/ballots-ledger');
   },
 
+  async getRegisteredVoters() {
+    return this.request<{ voters: RegisteredVoterRecord[]; total: number }>('/api/admin/voters');
+  },
+
   async resetDemoElection() {
     return this.request<{ success: boolean; message: string }>('/api/admin/reset-election', {
       method: 'POST',
+    });
+  },
+
+  async unrestrictVoter(voterId: string) {
+    return this.request<{ success: boolean; message: string }>('/api/admin/unrestrict-voter', {
+      method: 'POST',
+      body: JSON.stringify({ voterId }),
     });
   },
 

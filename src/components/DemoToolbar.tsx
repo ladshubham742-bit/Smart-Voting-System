@@ -127,7 +127,7 @@ export const DemoToolbar: React.FC<DemoToolbarProps> = ({
                 </div>
                 <div className="text-[11px] text-slate-500 font-mono mt-0.5">DEMO-VOTER-002</div>
                 <div className="text-[11px] text-slate-600 mt-1">
-                  Tests immediate ballot rejection & access denied alert banner.
+                  Tests One Person One Vote: Voter ID gets restricted when attempting to vote again.
                 </div>
               </div>
 
@@ -136,9 +136,9 @@ export const DemoToolbar: React.FC<DemoToolbarProps> = ({
                   onQuickLogin('DEMO-VOTER-002', 'Demo@123');
                   onClose();
                 }}
-                className="mt-3 w-full py-1.5 px-3 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1"
+                className="mt-3 w-full py-1.5 px-3 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1"
               >
-                <span>Test Double-Vote Lock</span>
+                <span>Test ID Restriction</span>
                 <ArrowRight className="w-3 h-3" />
               </button>
             </div>

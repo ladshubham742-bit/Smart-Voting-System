@@ -192,48 +192,103 @@ export const VoterRegistration: React.FC<VoterRegistrationProps> = ({ onSuccess,
 
         {/* Identity Verification Success Screen */}
         {verificationSuccess && registeredVoter ? (
-          <div className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-4 text-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="p-6 rounded-2xl bg-emerald-50/80 border border-emerald-200 space-y-5 text-center animate-in fade-in zoom-in-95 duration-200">
             <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-inner">
               <CheckCircle2 className="w-10 h-10" />
             </div>
 
             <div className="space-y-1">
-              <h3 className="text-xl font-extrabold text-emerald-900">
-                Identity verification successful ✓
+              <span className="px-3 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-block mb-1">
+                DATABASE RECORD STORED & INDEXED ✓
+              </span>
+              <h3 className="text-xl font-extrabold text-emerald-950">
+                Citizen Registration Successful
               </h3>
-              <p className="text-sm text-emerald-700">
-                Government & College records verified. Tokenized representation established.
+              <p className="text-xs text-emerald-700 max-w-md mx-auto">
+                Your credentials have been authenticated and securely persisted in the election database.
               </p>
             </div>
 
-            {/* Tokenized summary pill */}
-            <div className="bg-white p-4 rounded-xl border border-emerald-200 text-left space-y-2 text-xs">
-              <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                <span className="text-slate-500">Registered Name:</span>
-                <span className="font-bold text-slate-800">{registeredVoter.name}</span>
+            {/* Official Stored Database Record Card */}
+            <div className="bg-white p-5 rounded-2xl border border-emerald-200 text-left space-y-3 shadow-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <div>
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                    Central Database Record ID
+                  </span>
+                  <span className="font-mono font-black text-sm text-indigo-700">
+                    {registeredVoter.databaseRecordId || 'REG-DB-2026-PENDING'}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
+                    Registration Timestamp
+                  </span>
+                  <span className="font-mono text-xs text-slate-700 font-bold">
+                    {new Date(registeredVoter.createdAt || Date.now()).toLocaleTimeString()} • {new Date(registeredVoter.createdAt || Date.now()).toLocaleDateString()}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                <span className="text-slate-500">Voter / Student ID:</span>
-                <span className="font-mono font-bold text-blue-600">{registeredVoter.id}</span>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-slate-500 block text-[10px]">Registered Citizen Name</span>
+                  <span className="font-bold text-slate-900 text-sm">{registeredVoter.name}</span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-slate-500 block text-[10px]">Voter / Student Registry ID</span>
+                  <span className="font-mono font-bold text-blue-600 text-sm">{registeredVoter.id}</span>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-slate-500 block text-[10px]">KYC Document & Masked ID</span>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">
+                      {registeredVoter.idType}
+                    </span>
+                    <span className="font-mono font-bold text-slate-800">
+                      {registeredVoter.idNumberMasked}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-slate-500 block text-[10px]">Voting Eligibility Status</span>
+                  <span className="inline-flex items-center gap-1 font-bold text-emerald-700">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Eligible (One Ballot Allotted)
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                <span className="text-slate-500">Masked ID Number:</span>
-                <span className="font-mono text-slate-700">{registeredVoter.idNumberMasked}</span>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">Cryptographic Identity Token:</span>
-                <span className="font-mono text-[10px] text-slate-600 truncate max-w-[200px]" title={verifiedToken || ''}>
-                  {verifiedToken ? `${verifiedToken.substring(0, 16)}...` : 'GENERATED'}
+
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                <span className="text-slate-500 block text-[10px]">Stored Cryptographic Identity Token (SHA-256)</span>
+                <span className="font-mono text-[10px] text-slate-700 truncate block mt-0.5" title={verifiedToken || ''}>
+                  {verifiedToken || registeredVoter.identityToken}
                 </span>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-indigo-50/70 border border-indigo-100 text-[11px] text-indigo-900 flex items-center justify-between">
+                <span>Database File Sync:</span>
+                <span className="font-mono font-bold text-indigo-700">data/election_database.json</span>
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
               <button
-                onClick={() => onSuccess(registeredVoter)}
-                className="w-full py-3.5 px-6 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all"
+                type="button"
+                onClick={() => onNavigate('LOGIN')}
+                className="py-3 px-4 rounded-xl font-bold text-xs bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 transition-all flex items-center justify-center gap-1.5"
               >
-                Proceed to Fingerprint Registration
+                Go to Login
+              </button>
+              <button
+                type="button"
+                onClick={() => onSuccess(registeredVoter)}
+                className="flex-1 py-3.5 px-6 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all"
+              >
+                Proceed to Fingerprint Registration (Step 2)
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>

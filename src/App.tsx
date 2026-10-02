@@ -14,13 +14,15 @@ import { ElectionResults } from './components/ElectionResults';
 import { HowItWorksModal } from './components/HowItWorksModal';
 import { ReceiptVerifierModal } from './components/ReceiptVerifierModal';
 import { DemoToolbar } from './components/DemoToolbar';
+import { VoterProfileModal } from './components/VoterProfileModal';
 import { api } from './services/api';
-import { EncryptedReceipt, StepType, Voter } from './types';
+import { EncryptedReceipt, StepType, Voter, DashboardTab } from './types';
 
 export default function App() {
   const [currentStep, setCurrentStep] = useState<StepType>('LANDING');
   const [currentUser, setCurrentUser] = useState<Voter | null>(null);
   const [latestReceipt, setLatestReceipt] = useState<EncryptedReceipt | null>(null);
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab>('OVERVIEW');
 
   // Quick Preset states
   const [presetLoginId, setPresetLoginId] = useState<string>('');
@@ -31,6 +33,12 @@ export default function App() {
   const [isDemoSwitcherOpen, setIsDemoSwitcherOpen] = useState(false);
   const [isReceiptVerifierOpen, setIsReceiptVerifierOpen] = useState(false);
   const [verifierReceiptId, setVerifierReceiptId] = useState<string>('');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  const handleNavigateToDashboardTab = (tab: DashboardTab) => {
+    setDashboardTab(tab);
+    setCurrentStep('ADMIN_DASHBOARD');
+  };
 
   // Check existing session on load
   useEffect(() => {
@@ -51,6 +59,11 @@ export default function App() {
           identityToken: '',
           hasVoted: status.hasVoted,
           votedAt: status.votedAt,
+          receiptId: status.receiptId || null,
+          isRestricted: status.isRestricted || false,
+          restrictedReason: status.restrictedReason || null,
+          restrictedAt: status.restrictedAt || null,
+          databaseRecordId: status.databaseRecordId,
           role: status.role as any,
         });
       } catch (e) {
@@ -97,6 +110,7 @@ export default function App() {
       <Navbar
         currentStep={currentStep}
         onNavigate={(step) => setCurrentStep(step)}
+        onNavigateToDashboardTab={handleNavigateToDashboardTab}
         currentUser={currentUser}
         onLogout={handleLogout}
         onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
@@ -105,6 +119,7 @@ export default function App() {
           setVerifierReceiptId('');
           setIsReceiptVerifierOpen(true);
         }}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
       />
 
       {/* Top 8-Step Stepper */}
@@ -118,6 +133,7 @@ export default function App() {
         {currentStep === 'LANDING' && (
           <LandingPage
             onNavigate={(step) => setCurrentStep(step)}
+            onNavigateToTab={handleNavigateToDashboardTab}
             onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
             onOpenDemoSwitcher={() => setIsDemoSwitcherOpen(true)}
             onQuickLogin={handleQuickLogin}
@@ -202,6 +218,7 @@ export default function App() {
         {currentStep === 'ADMIN_DASHBOARD' && (
           <AdminDashboard
             currentUser={currentUser}
+            initialTab={dashboardTab}
             onNavigate={(step) => setCurrentStep(step)}
             onOpenReceiptVerifierWithId={handleOpenVerifierWithId}
           />
@@ -231,6 +248,17 @@ export default function App() {
       </aside>
 
       {/* Modals */}
+      <VoterProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        onNavigate={(step) => {
+          setIsProfileModalOpen(false);
+          setCurrentStep(step);
+        }}
+        onVerifyReceipt={handleOpenVerifierWithId}
+      />
+
       <HowItWorksModal
         isOpen={isHowItWorksOpen}
         onClose={() => setIsHowItWorksOpen(false)}

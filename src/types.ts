@@ -9,9 +9,110 @@ export interface Voter {
   identityToken: string;
   hasVoted: boolean;
   votedAt: string | null;
+  receiptId?: string | null;
   role: 'Voter' | 'Election Officer' | 'Administrator';
   hasRegisteredFingerprint?: boolean;
   hasRegisteredFace?: boolean;
+  isRestricted?: boolean;
+  restrictedReason?: string | null;
+  restrictedAt?: string | null;
+  createdAt?: string;
+  lastLoginAt?: string | null;
+  loginCount?: number;
+  databaseRecordId?: string;
+}
+
+export interface RegisteredVoterRecord {
+  id: string;
+  name: string;
+  email: string;
+  mobile: string;
+  idType: string;
+  idNumberMasked: string;
+  identityTokenSnippet: string;
+  hasVoted: boolean;
+  votedAt: string | null;
+  receiptId?: string | null;
+  isRestricted: boolean;
+  restrictedReason?: string | null;
+  restrictedAt?: string | null;
+  createdAt: string;
+  lastLoginAt?: string | null;
+  loginCount: number;
+  hasRegisteredFingerprint: boolean;
+  hasRegisteredFace: boolean;
+  databaseRecordId?: string;
+}
+
+export interface LoginRecord {
+  id: string;
+  voterId: string;
+  name: string;
+  role: string;
+  timestamp: string;
+  ip: string;
+  status: 'SUCCESS' | 'FAILED';
+  failureReason?: string;
+}
+
+export interface RegistrationRecord {
+  id: string;
+  voterId: string;
+  name: string;
+  email: string;
+  mobile: string;
+  dob: string;
+  idType: string;
+  idNumberMasked: string;
+  identityToken: string;
+  registeredAt: string;
+  ip: string;
+  databaseRecordNumber: number;
+}
+
+export interface VotingRecord {
+  id: string;
+  voterId: string;
+  receiptId: string;
+  ballotId: string;
+  timestamp: string;
+  verificationHash: string;
+  status: 'VOTE_CONFIRMED' | 'RESTRICTED';
+}
+
+export interface DatabaseSummary {
+  totalRegistered: number;
+  totalLogins: number;
+  totalVotesCast: number;
+  totalRestricted: number;
+  databaseType: string;
+  storageFile: string;
+  lastUpdated: string;
+}
+
+export interface VoterProfileRecord {
+  voterId: string;
+  name: string;
+  dob: string;
+  email: string;
+  mobile: string;
+  idType: string;
+  idNumberMasked: string;
+  identityToken: string;
+  databaseRecordId: string;
+  createdAt: string;
+  lastLoginAt: string | null;
+  loginCount: number;
+  hasRegisteredFingerprint: boolean;
+  hasRegisteredFace: boolean;
+  hasVoted: boolean;
+  votedAt: string | null;
+  receiptId: string | null;
+  verificationHash?: string | null;
+  isRestricted: boolean;
+  restrictedReason: string | null;
+  restrictedAt: string | null;
+  role: string;
 }
 
 export interface Candidate {
@@ -57,6 +158,8 @@ export interface AdminStats {
   candidateTallies: CandidateTally[];
   failedAttemptsCounter: number;
   duplicateAttemptsCounter: number;
+  restrictedVotersCount: number;
+  restrictedVoters?: Array<{ id: string; name: string; restrictedAt: string; reason: string; email: string }>;
   totalEncryptedBallots: number;
   electionStatus: string;
   encryptionStandard: string;
@@ -119,3 +222,6 @@ export type StepType =
   | 'CONFIRMATION'
   | 'ADMIN_DASHBOARD'
   | 'RESULTS';
+
+export type DashboardTab = 'OVERVIEW' | 'TALLIES' | 'VOTERS' | 'LEDGER' | 'AUDIT' | 'RESTRICTED';
+
